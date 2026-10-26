@@ -6,6 +6,7 @@ npm can attach a trusted publisher only to a package that exists, so the first v
 
 ```sh
 git clone https://github.com/mirko-pira/fastify-lazy-schema && cd fastify-lazy-schema
+npm ci                        # the typecheck, tests and build below need the dev dependencies
 npm login
 npm publish --access public   # runs typecheck, tests and the build first; asks for the 2FA code
 ```
