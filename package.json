@@ -1,0 +1,57 @@
+{
+  "name": "fastify-lazy-schema",
+  "version": "0.1.0",
+  "description": "Compile each Fastify route's request validators and response serializers at the route's first request instead of at boot, with Fastify's own compilers.",
+  "keywords": [
+    "fastify",
+    "fastify-plugin",
+    "schema",
+    "ajv",
+    "fast-json-stringify",
+    "startup",
+    "cold-start"
+  ],
+  "license": "MIT",
+  "author": "Mirko Pira",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mirko-pira/fastify-lazy-schema.git"
+  },
+  "bugs": "https://github.com/mirko-pira/fastify-lazy-schema/issues",
+  "homepage": "https://github.com/mirko-pira/fastify-lazy-schema#readme",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
+  },
+  "dependencies": {
+    "fastify-plugin": "^5.1.0"
+  },
+  "peerDependencies": {
+    "fastify": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.7.0",
+    "@vitest/coverage-v8": "^5.0.5",
+    "fastify": "^5.12.7",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}
