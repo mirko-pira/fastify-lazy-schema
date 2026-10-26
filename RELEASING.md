@@ -11,7 +11,7 @@ npm login
 npm publish --access public   # runs typecheck, tests and the build first; asks for the 2FA code
 ```
 
-Then, on npmjs.com, open the package → Settings → Trusted publishing → GitHub Actions, and set: user `mirko-pira`, repository `fastify-lazy-schema`, workflow `release.yml`, environment `npm`, with permission to publish directly. Finally push the tag, which records the release (the workflow skips a version already on npm):
+Then push the tag, which records the release (the workflow skips a version already on npm, so this run does not exercise trusted publishing):
 
 ```sh
 git tag v0.1.0 && git push origin v0.1.0
@@ -20,5 +20,6 @@ git tag v0.1.0 && git push origin v0.1.0
 ## Later releases
 
 1. Update `version` in `package.json` and the entry in `CHANGELOG.md`, merged into `main` with CI green.
-2. Push a tag `v<version>` matching `package.json`.
-3. `.github/workflows/release.yml` checks the tag, runs typecheck, tests and the consumer smoke test, and publishes through npm trusted publishing with provenance. No npm token is stored anywhere.
+2. Before the first release the workflow publishes (and again if the configuration has expired): on npmjs.com, open the package → Settings → Trusted publishing → GitHub Actions, and set user `mirko-pira`, repository `fastify-lazy-schema`, workflow `release.yml`, environment `npm`, with permission to publish directly. npm expects the first successful publish through a new trusted publisher within two days ([configuration expiry](https://docs.npmjs.com/trusted-publishers/#trusted-publisher-configuration-expiry)), so configure it right before step 3, and recreate it if it expired unused.
+3. Push a tag `v<version>` matching `package.json`.
+4. `.github/workflows/release.yml` checks the tag, runs typecheck, tests and the consumer smoke test, and publishes through npm trusted publishing with provenance. No npm token is stored anywhere.
