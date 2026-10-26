@@ -62,6 +62,7 @@ interface SchemaController {
   compilersFactory?: Partial<CompilersFactory>
   isCustomValidatorCompiler?: boolean
   isCustomSerializerCompiler?: boolean
+  parent?: SchemaController
 }
 
 // Fastify keys its schema controller with `Symbol('fastify.schemaController')`.
@@ -70,8 +71,8 @@ const SCHEMA_CONTROLLER = 'fastify.schemaController'
 /** The string values, compared trimmed and lower-cased, that turn the plugin off. */
 const OFF = new Set(['', 'false', '0', 'off', 'no'])
 
-/** Factories already wrapped, so a second registration does not wrap them again. */
-const deferred = new WeakSet<CompilersFactory>()
+/** The builders the plugin produced, so it never wraps one twice (a second registration included). */
+const wrappers = new WeakSet<object>()
 
 export interface LazySchemaCompilationOptions {
   /**
@@ -157,17 +158,26 @@ function schemaControllerOf(app: FastifyInstance): SchemaController | undefined 
   return undefined
 }
 
-/** The compiler factories every context of the instance shares, unless it sets a compiler of its own. */
-function sharedFactoryOf(controller: SchemaController | undefined): CompilersFactory {
-  const factory = controller?.opts?.compilersFactory ?? controller?.compilersFactory
-  if (
+const NOT_FOUND =
+  'Lazy schema compilation found no compiler factories on this Fastify instance: it reads the schema controller of Fastify 5, and this Fastify keeps them elsewhere'
+
+/**
+ * Whether every controller from `controller` up to the root shares one options
+ * object, as Fastify's own encapsulation does. `setSchemaController` builds a
+ * controller with options of its own, whose compiler flags describe the
+ * controller it replaced rather than the factories it was given.
+ */
+function sharesOptionsToTheRoot(controller: SchemaController): boolean {
+  for (let current = controller; current.parent !== undefined; current = current.parent) {
+    if (current.opts !== current.parent.opts) return false
+  }
+  return true
+}
+
+function isComplete(factory: Partial<CompilersFactory> | undefined): factory is CompilersFactory {
+  return (
     typeof factory?.buildValidator === 'function' &&
     typeof factory.buildSerializer === 'function'
-  ) {
-    return factory as CompilersFactory
-  }
-  throw new Error(
-    'Lazy schema compilation found no compiler factories on this Fastify instance: it reads the schema controller of Fastify 5, and this Fastify keeps them elsewhere'
   )
 }
 
@@ -225,52 +235,78 @@ function deferSerializers(
 }
 
 /**
- * Wraps the compiler factories the instance shares, so the validators and
+ * Wraps Fastify's default compiler factories, so the validators and
  * serializers built from them build at their first call until the server is
- * ready. Call it before `ready`. A factory the application supplied itself
- * (`schemaController.compilersFactory`), and a compiler a context or a route
- * sets (`setValidatorCompiler`, `setSerializerCompiler`, a route's
- * `validatorCompiler`/`serializerCompiler`), are left alone: those routes keep
- * compiling at boot.
+ * ready. Call it before `ready`.
+ *
+ * Two objects can hold a default factory the routes of the registering context
+ * use: the factories every context shares (`opts.compilersFactory`), and the
+ * copy a context made when it set one compiler of its own before the plugin
+ * (`setValidatorCompiler` / `setSerializerCompiler` clone the shared object
+ * with one half replaced). Both default halves are wrapped. A factory the
+ * application supplied itself (`schemaController.compilersFactory`), a
+ * compiler a context or a route sets, and every compiler after a
+ * `setSchemaController` made before the plugin, are left alone: those routes
+ * keep compiling at boot, with a warning where the plugin can see them.
  */
 function deferSchemaCompilation(app: FastifyInstance): void {
   const controller = schemaControllerOf(app)
-  const shared = sharedFactoryOf(controller)
-  if (deferred.has(shared)) {
+  if (controller === undefined) throw new Error(NOT_FOUND)
+  if (!sharesOptionsToTheRoot(controller)) {
+    app.log.warn(
+      'setSchemaController was called before lazy schema compilation was registered: route schemas keep compiling at boot'
+    )
+    return
+  }
+  const shared = controller.opts?.compilersFactory
+  if (!isComplete(shared)) throw new Error(NOT_FOUND)
+  if (wrappers.has(shared.buildValidator) || wrappers.has(shared.buildSerializer)) {
     app.log.debug('lazy schema compilation is already registered on this instance')
     return
   }
-  deferred.add(shared)
 
   const readiness: Readiness = { ready: false }
   app.addHook('onReady', async () => {
     readiness.ready = true
   })
+  const deferValidatorsOf = (factory: Partial<CompilersFactory>): void => {
+    if (typeof factory.buildValidator !== 'function' || wrappers.has(factory.buildValidator)) return
+    factory.buildValidator = deferValidators(factory.buildValidator, readiness)
+    wrappers.add(factory.buildValidator)
+  }
+  const deferSerializersOf = (factory: Partial<CompilersFactory>): void => {
+    if (typeof factory.buildSerializer !== 'function' || wrappers.has(factory.buildSerializer)) return
+    factory.buildSerializer = deferSerializers(factory.buildSerializer, readiness)
+    wrappers.add(factory.buildSerializer)
+  }
 
-  const customValidators = controller?.opts?.isCustomValidatorCompiler === true
-  const customSerializers = controller?.opts?.isCustomSerializerCompiler === true
-  if (customValidators) {
+  const suppliedValidators = controller.opts?.isCustomValidatorCompiler === true
+  const suppliedSerializers = controller.opts?.isCustomSerializerCompiler === true
+  const ownValidators = controller.isCustomValidatorCompiler === true && !suppliedValidators
+  const ownSerializers = controller.isCustomSerializerCompiler === true && !suppliedSerializers
+  const live = controller.compilersFactory
+
+  if (suppliedValidators) {
     app.log.warn('the application supplies its own validator compiler factory: validators keep compiling at boot')
   } else {
-    shared.buildValidator = deferValidators(shared.buildValidator, readiness)
+    deferValidatorsOf(shared)
+    if (ownValidators) {
+      app.log.warn('this context sets its own validator compiler: its routes keep compiling their validators at boot')
+    } else if (live !== undefined && live !== shared) {
+      deferValidatorsOf(live)
+    }
   }
-  if (customSerializers) {
+  if (suppliedSerializers) {
     app.log.warn('the application supplies its own serializer compiler factory: serializers keep compiling at boot')
   } else {
-    shared.buildSerializer = deferSerializers(shared.buildSerializer, readiness)
+    deferSerializersOf(shared)
+    if (ownSerializers) {
+      app.log.warn('this context sets its own serializer compiler: its routes keep compiling their serializers at boot')
+    } else if (live !== undefined && live !== shared) {
+      deferSerializersOf(live)
+    }
   }
-
-  if (!customValidators && controller?.isCustomValidatorCompiler === true) {
-    app.log.warn(
-      'this context sets its own validator compiler: its routes keep compiling their validators at boot'
-    )
-  }
-  if (!customSerializers && controller?.isCustomSerializerCompiler === true) {
-    app.log.warn(
-      'this context sets its own serializer compiler: its routes keep compiling their serializers at boot'
-    )
-  }
-  if (!customValidators || !customSerializers) {
+  if (!suppliedValidators || !suppliedSerializers) {
     app.log.info("route schemas compile at each route's first request")
   }
 }
@@ -285,5 +321,5 @@ async function lazySchemaCompilation(
 
 export const lazySchemaCompilationPlugin = fp(lazySchemaCompilation, {
   name: 'fastify-lazy-schema',
-  fastify: '5.x',
+  fastify: '>=5.9.0 <6.0.0',
 })

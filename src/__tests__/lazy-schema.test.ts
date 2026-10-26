@@ -346,6 +346,110 @@ describe('lazySchemaCompilationPlugin', () => {
     ).toBe(200)
   })
 
+  it('keeps an application-supplied serializer factory compiling at boot, and defers the validators', async () => {
+    let serializerBuilds = 0
+    const buildSerializer = () => () => {
+      serializerBuilds++
+      return JSON.stringify
+    }
+    const counting = countingAjv()
+    const { app, lines } = withWarnings({
+      ajv: counting.ajv,
+      schemaController: { compilersFactory: { buildSerializer: buildSerializer as never } },
+    })
+    await app.register(lazySchemaCompilationPlugin)
+    app.post(
+      '/both',
+      { schema: { body: { type: 'object', 'x-counted': true }, response: { 200: { type: 'object' } } } },
+      async () => ({ serializerBuilds })
+    )
+    await app.ready()
+
+    expect([serializerBuilds, counting.counter.compiles]).toEqual([1, 0])
+    expect(lines.some((line) => line.includes('own serializer compiler factory'))).toBe(true)
+    expect(lines.some((line) => line.includes('own validator compiler factory'))).toBe(false)
+  })
+
+  it('leaves every compiler eager, with a warning, after a setSchemaController made before it', async () => {
+    let builds = 0
+    const { app, lines } = withWarnings()
+    app.setSchemaController({
+      compilersFactory: {
+        buildValidator: (() => () => {
+          builds++
+          return () => true
+        }) as never,
+        buildSerializer: (() => () => {
+          builds++
+          return JSON.stringify
+        }) as never,
+      },
+    })
+    await app.register(lazySchemaCompilationPlugin)
+    app.post(
+      '/',
+      { schema: { body: { type: 'object' }, response: { 200: { type: 'object' } } } },
+      async () => ({ builds })
+    )
+    await app.ready()
+
+    expect(builds).toBe(2)
+    expect(lines.some((line) => line.includes('setSchemaController was called before'))).toBe(true)
+    expect(
+      (await app.inject({ method: 'POST', url: '/', payload: {}, headers: JSON_HEADERS })).json()
+    ).toEqual({ builds: 2 })
+  })
+
+  it('boots with a partial setSchemaController made before it', async () => {
+    const { app } = withWarnings()
+    app.setSchemaController({
+      compilersFactory: { buildValidator: (() => () => () => true) as never },
+    })
+    await app.register(lazySchemaCompilationPlugin)
+    app.post('/', { schema: { body: { type: 'object' } } }, async () => ({ ok: true }))
+    await app.ready()
+
+    expect(
+      (await app.inject({ method: 'POST', url: '/', payload: {}, headers: JSON_HEADERS }))
+        .statusCode
+    ).toBe(200)
+  })
+
+  it('defers the default serializer of a root that set its validator compiler before it', async () => {
+    const app = Fastify()
+    booted.push(app)
+    app.setValidatorCompiler(() => () => true)
+    await app.register(lazySchemaCompilationPlugin)
+    app.get('/', { schema: { response: { 200: { $ref: 'missing#' } } } }, async () => ({}))
+    await app.ready()
+
+    expect((await app.inject({ method: 'GET', url: '/' })).statusCode).toBe(500)
+  })
+
+  it('defers the default validator of a root that set its serializer compiler before it', async () => {
+    const counting = countingAjv()
+    const app = Fastify({ ajv: counting.ajv })
+    booted.push(app)
+    app.setSerializerCompiler(() => JSON.stringify)
+    await app.register(lazySchemaCompilationPlugin)
+    countedRoute(app)
+    await app.ready()
+
+    expect(counting.counter.compiles).toBe(0)
+    await app.inject({ method: 'POST', url: '/counted', payload: {}, headers: JSON_HEADERS })
+    expect(counting.counter.compiles).toBe(1)
+  })
+
+  it('still stops the boot on an invalid shared schema, which Fastify checks when it builds the compiler', async () => {
+    const app = Fastify()
+    booted.push(app)
+    await app.register(lazySchemaCompilationPlugin)
+    app.addSchema({ $id: 'broken', type: 'notatype' })
+    app.post('/', { schema: { body: { $ref: 'broken#' } } }, async () => ({}))
+
+    await expect(app.ready()).rejects.toThrow(/schema is invalid/)
+  })
+
   it('keeps an application-supplied validator factory compiling at boot', async () => {
     let customBuilds = 0
     const buildValidator = () => () => {

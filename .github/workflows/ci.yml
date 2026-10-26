@@ -34,7 +34,7 @@ jobs:
         run: bash scripts/consumer-smoke.sh
 
   lowest-fastify:
-    # The peer range starts at Fastify 5.6.2, the first 5.x that catches an error thrown while a request is validated: the tests run against it too.
+    # The peer range starts at Fastify 5.9.0, the first 5.x whose schema controller flags a supplied serializer factory correctly: the tests run against it too.
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -44,5 +44,5 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npm install --no-save --no-audit --no-fund fastify@5.6.2
+      - run: npm install --no-save --no-audit --no-fund fastify@5.9.0
       - run: npx vitest run
