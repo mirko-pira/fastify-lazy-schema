@@ -7,7 +7,7 @@
     "types": ["node"],
     "strict": true,
     "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": false,
+    "exactOptionalPropertyTypes": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "outDir": "./dist",

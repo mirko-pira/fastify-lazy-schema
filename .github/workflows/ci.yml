@@ -8,9 +8,14 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -23,5 +28,21 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
-      - run: npm test
+      - run: npm run test:coverage
       - run: npm run build
+      - name: Pack, install into an empty project, import and require it
+        run: bash scripts/consumer-smoke.sh
+
+  lowest-fastify:
+    # The peer range starts at Fastify 5.6.2, the first 5.x that catches an error thrown while a request is validated: the tests run against it too.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm install --no-save --no-audit --no-fund fastify@5.6.2
+      - run: npx vitest run

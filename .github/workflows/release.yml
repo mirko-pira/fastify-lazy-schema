@@ -1,0 +1,41 @@
+name: Release
+
+# Publishes to npm when a tag `v<version>` is pushed, through npm trusted
+# publishing (OIDC): no npm token is stored anywhere, and the package carries a
+# provenance statement linking it to this workflow run. The package's trusted
+# publisher on npmjs.com must name this repository and this workflow file.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: npm
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      - name: The tag names the package version
+        run: |
+          version="v$(node -p 'require("./package.json").version')"
+          if [ "$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match package.json $version"
+            exit 1
+          fi
+      # Trusted publishing needs npm 11.5.1 or later.
+      - run: npm install -g npm@^11.5.1
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: bash scripts/consumer-smoke.sh
+      - run: npm publish --provenance --access public

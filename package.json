@@ -9,7 +9,9 @@
     "ajv",
     "fast-json-stringify",
     "startup",
-    "cold-start"
+    "cold-start",
+    "lazy",
+    "performance"
   ],
   "license": "MIT",
   "author": "Mirko Pira",
@@ -17,9 +19,12 @@
     "type": "git",
     "url": "git+https://github.com/mirko-pira/fastify-lazy-schema.git"
   },
-  "bugs": "https://github.com/mirko-pira/fastify-lazy-schema/issues",
+  "bugs": {
+    "url": "https://github.com/mirko-pira/fastify-lazy-schema/issues"
+  },
   "homepage": "https://github.com/mirko-pira/fastify-lazy-schema#readme",
   "type": "module",
+  "sideEffects": false,
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -32,20 +37,24 @@
     "dist"
   ],
   "engines": {
-    "node": ">=20"
+    "node": "^20.19.0 || >=22.12.0"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "prepublishOnly": "npm run typecheck && npm test && npm run build"
+    "prepack": "npm run build",
+    "prepublishOnly": "npm run typecheck && npm test"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "dependencies": {
     "fastify-plugin": "^5.1.0"
   },
   "peerDependencies": {
-    "fastify": "^5.0.0"
+    "fastify": "^5.6.2"
   },
   "devDependencies": {
     "@types/node": "^24.7.0",
