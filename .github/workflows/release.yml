@@ -38,4 +38,17 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: bash scripts/consumer-smoke.sh
-      - run: npm publish --provenance --access public
+      # A version published by hand (the package's first release) is not
+      # published again: the tag then only records the release.
+      - name: Is this version already on npm
+        id: published
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          if npm view "fastify-lazy-schema@${version}" version >/dev/null 2>&1; then
+            echo "already=true" >>"$GITHUB_OUTPUT"
+            echo "::notice::fastify-lazy-schema@${version} is already on npm; nothing to publish"
+          else
+            echo "already=false" >>"$GITHUB_OUTPUT"
+          fi
+      - if: steps.published.outputs.already == 'false'
+        run: npm publish --provenance --access public
